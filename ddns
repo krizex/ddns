@@ -19,6 +19,7 @@ Examples:
     ddns namesilo --key KEY --domain DOMAIN
     ddns ns1 --key KEY --domain DOMAIN
     ddns qcloud --secret-id SECRET_ID --secret-key SECRET_KEY --domain DOMAIN
+    ddns testmail --domain DOMAIN --ip IP
 """
 
 PY2 = '' is not u''
@@ -44,8 +45,7 @@ import uuid
 import xml.etree.ElementTree
 import dbm
 
-from sendgrid import *
-from sendgrid.helpers.mail import *
+from maileroo import MailerooClient, EmailAddress
 from time import strftime
 
 if PY2:
@@ -65,19 +65,8 @@ email_from_address = "pi-no-reply@krizex.space"
 email_to_address = "krizex@gmail.com"
 subject = "DNS update notification, timestamped: " + strftime('%x %H:%M:%S')  # Subject line.
 
-def build_message(domain, ip):
-    """Builds an outgoing message."""
-    msg = "Updated {} ip to {}".format(domain, ip)
-    message = Mail(
-        from_email=email_from_address,
-        to_emails=email_to_address,
-        subject=subject,
-        html_content='<p>%s</p>' % msg)
-    return message
-
-
 def send_message(domain, ip):
-    """Sends a built outgoing message."""
+    """Sends an email notification using Maileroo."""
     # @todo validation & error handling.
     with dbm.open("/home/pi/ddns.db", "c") as db:
         key = "latestIp".encode()
@@ -87,9 +76,50 @@ def send_message(domain, ip):
             return
 
         db[key] = ip.encode()
-        sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+        
+        # Initialize Maileroo client
+        client = MailerooClient(os.environ.get('MAILEROO_API_KEY'))
+        
+        # Prepare email content
+        msg = "Updated {} ip to {}".format(domain, ip)
+        
+        # Send email using Maileroo
+        client.send_basic_email({
+            "from": EmailAddress(email_from_address),
+            "to": [EmailAddress(email_to_address)],
+            "subject": subject,
+            "html": "<p>{}</p>".format(msg),
+            "plain": msg
+        })
+        
         logging.info("Message generated and sent at {}".format(strftime('%x %H:%M:%S')))
-        sg.send(build_message(domain, ip))
+
+
+def testmail(domain="test.example.com", ip="127.0.0.1"):
+    """Sends a test email using Maileroo without checking database or updating records."""
+    try:
+        # Initialize Maileroo client
+        client = MailerooClient(os.environ.get('MAILEROO_API_KEY'))
+        
+        # Prepare test email content
+        test_subject = "DDNS Test Email - " + strftime('%x %H:%M:%S')
+        msg = "Test email: Updated {} ip to {}".format(domain, ip)
+        
+        # Send test email using Maileroo
+        client.send_basic_email({
+            "from": EmailAddress(email_from_address),
+            "to": [EmailAddress(email_to_address)],
+            "subject": test_subject,
+            "html": "<p><strong>This is a test email</strong></p><p>{}</p>".format(msg),
+            "plain": "This is a test email\n{}".format(msg)
+        })
+        
+        logging.info("Test email sent successfully at {}".format(strftime('%x %H:%M:%S')))
+        print("Test email sent successfully!")
+        
+    except Exception as e:
+        logging.error("Failed to send test email: %s", e)
+        print("Failed to send test email: {}".format(e))
 
 
 def aliyun(key, secret, domain):
